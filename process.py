@@ -39,7 +39,7 @@ class ImageFolderP(datasets.ImageFolder):
         return *super().__getitem__(index), self.samples[index][0] 
 
 
-def extract_feat(image_dir, transform = None):
+def extract_feat(image_dir, transform = None, filename_filter = None):
     feat_dir = image_dir.replace("images", "feats")
     if not osp.exists(feat_dir):
         os.mkdir(feat_dir)
@@ -47,9 +47,8 @@ def extract_feat(image_dir, transform = None):
     feat_ls = []
     label_ls = []
     imgpth_ls = []
-
-    dataset = ImageFolderP(root=image_dir, transform=transform)
-    dataloader = torch.utils.data.DataLoader(dataset = dataset, batch_size = 8)
+    dataset = ImageFolderP(root=image_dir, transform=transform, is_valid_file=filename_filter)
+    dataloader = torch.utils.data.DataLoader(dataset = dataset, batch_size = 16)
     for images, labels, image_path in tqdm(dataloader):
         images = images.to(device)
         feats = model(images).detach().cpu().numpy()
@@ -60,6 +59,7 @@ def extract_feat(image_dir, transform = None):
     feat_arr = np.vstack(feat_ls)
     label_arr = np.hstack(label_ls).astype(np.int)
     imgpth_arr = np.hstack(imgpth_ls).astype(str)
+    assert len(imgpth_arr) == len(test_filenames)
     feat_fn = "feats.txt"
     label_fn = "labels.txt"
     imgpth_fn = "image_paths.txt"
@@ -67,16 +67,22 @@ def extract_feat(image_dir, transform = None):
     # array(features)
     np.savetxt(osp.join(feat_dir, feat_fn), feat_arr)
     # array(labels)
-    np.savetxt(osp.join(feat_dir, label_fn), label_arr)
+    np.savetxt(osp.join(feat_dir, label_fn), label_arr, fmt='%d')
     # array(image_paths)
     np.savetxt(osp.join(feat_dir, imgpth_fn), imgpth_arr, fmt='%s')
     # dict{class name: label}
-    with open(class_to_label_fn, "rb") as f:
+    with open(osp.join(feat_dir,class_to_label_fn), "wb") as f:
         pickle.dump(dataset.class_to_idx, f)
-
-
 
 print("Extracting Food 101N")
 extract_feat(train_image_dir, transform=trans)
+
+def test_filter(imgpath, test_filter):
+        segs = imgpath.split(os.sep)[-2:]
+        segs[-1] = segs[-1].strip(".jpg")
+        return "/".join(segs) in test_filter
+
+test_path = osp.join(data_root,  "food-101","meta", "meta",  "test.txt")
+test_filenames = np.loadtxt(test_path, dtype=str)
 print("Extracting Food 101")
-extract_feat(test_image_dir, transform=trans)
+extract_feat(test_image_dir, transform=trans, filename_filter= lambda x: test_filter(x, test_filter=test_filenames))
